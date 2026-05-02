@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'username']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.username is string && data.username.size() >= 3 && data.username.size() <= 30 &&
+             data.email is string;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isOwner(userId) && isValidUser(incoming());
+      allow update: if isSignedIn() && isOwner(userId) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'bio', 'isPrivate', 'updatedAt', 'online', 'lastSeen'])
+      );
+    }
+
+    // Posts collection
+    match /posts/{postId} {
+      allow read: if isSignedIn(); // Add more complex logic for private accounts if needed
+      allow create: if isSignedIn() && isOwner(incoming().authorId);
+      allow update: if isSignedIn() && (
+        isOwner(existing().authorId) || 
+        incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'commentsCount', 'viewCount'])
+      );
+      allow delete: if isSignedIn() && isOwner(existing().authorId);
+    }
+
+    // Comments subcollection
+    match /posts/{postId}/comments/{commentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isOwner(incoming().authorId);
+      allow delete: if isSignedIn() && isOwner(existing().authorId);
+    }
+
+    // Follows collection
+    match /follows/{followId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isOwner(incoming().followerId);
+      allow update: if isSignedIn() && isOwner(existing().followingId) && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+      allow delete: if isSignedIn() && (isOwner(existing().followerId) || isOwner(existing().followingId));
+    }
+
+    // Chats and Messages
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && request.auth.uid in existing().participants;
+      allow create: if isSignedIn() && request.auth.uid in incoming().participants;
+      allow update: if isSignedIn() && request.auth.uid in existing().participants;
+    }
+
+    match /chats/{chatId}/messages/{messageId} {
+      allow read: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      allow create: if isSignedIn() && isOwner(incoming().senderId);
+    }
+
+    // Notifications
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && isOwner(existing().recipientId);
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && isOwner(existing().recipientId) && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+    }
+  }
+}

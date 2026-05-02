@@ -1,0 +1,12 @@
+{
+  "name": "Chat_Flow",
+  "description": "A retro-futurist social network with Glitch Art aesthetic, real-time messaging, reels, and AI-powered interaction.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "firebase",
+    "gemini"
+  ]
+}
